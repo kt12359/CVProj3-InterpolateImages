@@ -4,6 +4,7 @@ import numpy as np
 import pickle
 import numpy as np
 import os
+import math
 
 BLUR_OCC = 3
 
@@ -35,52 +36,55 @@ def find_holes(flow):
     :param flow: an dense optical flow matrix of shape [h,w,2], containing a vector [ux,uy] for each pixel
     :return: a mask annotated 0=hole, 1=no hole
     '''
-    height, width, _ = flow.shape
-    holes = [[0]* width]*height
-    for i in range(0, height):
-        for j in range(0, width):
-            if flow[i][j][0] >= 1e10 or flow[i][j][1] >= 1e10:
-                holes[i][j] = 0
+    height, width = flow.shape[:2]
+    holes = np.array([[0]* width]*height)
+    for y in range(0, height):
+        for x in range(0, width):
+            if flow[y][x][0] > 1e9 or flow[y][x][1] > 1e9 or math.isnan(flow[y][x][0]) or math.isnan(flow[y][x][1]) or np.isinf(flow[y][x][0]) or np.isinf(flow[y][x][1]):
+                holes[y][x] = 0
             else:
-                holes[i][j] = 1
+                holes[y][x] = 1
     return holes
 
 def check_bounds_and_append(flow, u, v, x, y, height, width, holes):
     # If row above is in range
-    not_top_row = ((y - 1 >= 0) and (holes[y-1][x] == 1))
-    not_last_row = ((y + 1 < width) and (holes[y+1][x] == 1))
-    not_first_column = ((x - 1 >= 0) and (holes[y][x-1] == 1))
-    not_last_column = ((x + 1 < height) and (holes[y][x+1] == 1))
-    if not_top_row:
-        u.append(flow[y-1][x][0])
-        v.append(flow[y-1][x][1])
+    not_top_row = ((x - 1 >= 0) and (holes[x-1][y] == 1))
+    not_last_row = ((x + 1 < height) and (holes[x+1][y] == 1))
+    not_first_column = ((y - 1 >= 0) and (holes[x][y-1] == 1))
+    not_last_column = ((y + 1 < width) and (holes[x][y+1] == 1))
     if not_first_column:
-        u.append(flow[y][x-1][0])
-        v.append(flow[y][x-1][1])
-    if not_last_row:
-        u.append(flow[y+1][x][0])
-        v.append(flow[y+1][x][1])
+        u.append(flow[x][y-1][0])
+        v.append(flow[x][y-1][1])
+    if not_top_row:
+        u.append(flow[x-1][y][0])
+        v.append(flow[x-1][y][1])
     if not_last_column:
-        u.append(flow[y][x+1][0])
-        v.append(flow[y][x+1][1])
+        u.append(flow[x][y+1][0])
+        v.append(flow[x][y+1][1])
+    if not_last_row:
+        u.append(flow[x+1][y][0])
+        v.append(flow[x+1][y][1])
     if not_last_column and not_last_row:
-        u.append(flow[y+1][x+1][0])
-        v.append(flow[y+1][x+1][1])
+        u.append(flow[x+1][y+1][0])
+        v.append(flow[x+1][y+1][1])
     if not_first_column and not_top_row:
-        u.append(flow[y-1][x-1][0])
-        v.append(flow[y-1][x-1][1])
+        u.append(flow[x-1][y-1][0])
+        v.append(flow[x-1][y-1][1])
     if not_first_column and not_last_row:
-        u.append(flow[y+1][x-1][0])
-        v.append(flow[y+1][x-1][1])
+        u.append(flow[x+1][y-1][0])
+        v.append(flow[x+1][y-1][1])
     if not_last_column and not_top_row:
-        u.append(flow[y-1][x+1][0])
-        v.append(flow[y-1][x+1][1])
+        u.append(flow[x-1][y+1][0])
+        v.append(flow[x-1][y+1][1])
     return u, v
 
 def average_flows(u, v):
     sum_u = np.sum(u)
     sum_v = np.sum(v)
-    return (sum_u/len(u), sum_v/len(v))
+    if len(u) > 0 and len(v) > 0:
+        return (sum_u/len(u), sum_v/len(v))
+    else:
+        return -1, -1
 
 def holefill(flow, holes):
     '''
@@ -92,15 +96,25 @@ def holefill(flow, holes):
     h,w,_ = flow.shape
     has_hole=1
     #while has_hole==1:
-        # ===== loop all pixel in x, then in y
-    for y in range(0, h-1):
-        for x in range(0,w-1):
+    # ===== loop all pixel in x, then in y
+    for y in range(0, w):
+        for x in range(0, h):
+            u = []
+            v = []
             # If current index is a hole
-            if holes[y][x] == 0:
-                u = []
-                v = []
-                u, v = check_bounds_and_append(flow, u, v, x, y, h, w, holes)
-                flow[y][x] = average_flows(u, v)
+            if holes[x][y] == 0:
+                has_hole = 1
+                for j in range(y - 1, y + 1):
+                    for i in range(x - 1, x + 1):
+                        if i >= 0 and i < h and j >= 0 and j < w:
+                            if holes[i][j] != 0:
+                                u.append(flow[i][j][0])
+                                v.append(flow[i][j][1])
+                                #u, v = check_bounds_and_append(flow, u, v, x, y, h, w, holes)
+                    ux, uy = average_flows(u, v)
+                    if ux >= 0 and uy >= 0:
+                        flow[y][x][0] = ux
+                        flow[y][x][1] = uy
     return flow
 
 def bilinearInterp(frame, fx, fy):
@@ -149,15 +163,19 @@ def occlusions(flow0, frame0, frame1):
     # ==================================================
     for y in range(0, height):
         for x in range(0, width):
-            total = 1
+            total = 0
+            occluded = 0
             for yy in np.arange(-0.5, 0.51, 0.5):
                 for xx in np.arange(-0.5, 0.51, 0.5):
                     nx = np.int32(x + flow0[y][x][0] + xx + 0.5)
                     ny = np.int32(y + flow0[y][x][1] + yy + 0.5)
                     if ny < height and nx < width and ny >= 0 and nx >= 0:
-                        if np.sum(abs(flow1[ny][nx] - flow0[y][x])) <= 0.5:
-                            total = 0
-            if total == 1:
+                        if np.sum(abs(flow1[ny][nx] - flow0[y][x])) >= 0.5:
+                            occluded += 1
+                    else:
+                        occluded += 1
+                    total += 1
+            if occluded/total >= 0.6: # > 0.6 best so far, testing 0.65
                 occ0[y][x] = 1
     for y in range(0, height):
         for x in range(0, width):
@@ -218,9 +236,22 @@ def warpimages(iflow, frame0, frame1, occ0, occ1, t):
     '''
 
     iframe = np.zeros_like(frame0).astype(np.float32)
-
-    # to be completed ...
-
+    height, width = frame0.shape[:2]
+    for y in range(0, height):
+        for x in range(0, width):
+            if occ0[y][x] != 0 and occ1[y][x] != 0:
+                x0 = x - t * iflow[y][x][0]
+                x1 = x + (1 - t) * iflow[y][x][0]
+                y0 = y + t * iflow[y][x][1]
+                y1 = y + (1 - t) * iflow[y][x][1]
+                iframe[y][x][0] = (1 - t) * frame0[y][x][0]*x0 + t*frame1[y][x][0]*x1
+                iframe[y][x][1] = (1 - t) * frame0[y][x][1]*y0 + t*frame1[y][x][1]*y1
+            elif occ0[y][x] != 0:
+                iframe[y][x][0] = frame0[y][x][0]
+                iframe[y][x][1] = frame0[y][x][1]
+            else:
+                iframe[y][x][0] = frame1[y][x][0]
+                iframe[y][x][1] = frame1[y][x][1]
     return iframe
 
 def blur(im):
@@ -255,8 +286,7 @@ def internp(frame0, frame1, t=0.5, flow0=None):
     # ==================================================
     # ===== 2/ find holes in the flow
     # ==================================================
-    holes0 = find_holes(flow0)
-    #pickle.dump(holes0,open('holes0.step2.data','wb'))  # save your intermediate result
+    '''holes0 = find_holes(flow0)
     pickle.dump(holes0,open('holes0.step2.data','wb'))  # save your intermediate result
     # ====== score
     holes0       = pickle.load(open('holes0.step2.data','rb')) # load your intermediate result
@@ -318,11 +348,12 @@ def internp(frame0, frame1, t=0.5, flow0=None):
     flow_t       = pickle.load(open('flow_t.step7.data', 'rb')) # load your intermediate result
     flow_t_step7 = pickle.load(open('flow_t.step7.sample', 'rb')) # load sample result
     diff = np.sum(np.abs(flow_t-flow_t_step7))
-    print('flow_t_step7',diff)
+    print('flow_t_step7',diff)'''
 
     # ==================================================
     # ===== step 8/ find holes in the estimated flow_t
     # ==================================================
+    flow_t = pickle.load(open('flow_t.step7.data', 'rb'))
     holes1 = find_holes(flow_t)
     pickle.dump(holes1, open('holes1.step8.data', 'wb')) # save your intermediate result
     # ====== score
