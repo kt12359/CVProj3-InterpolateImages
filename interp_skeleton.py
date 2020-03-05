@@ -46,46 +46,6 @@ def find_holes(flow):
                 holes[y][x] = 1
     return holes
 
-def check_bounds_and_append(flow, u, v, x, y, height, width, holes):
-    # If row above is in range
-    not_top_row = ((x - 1 >= 0) and (holes[x-1][y] == 1))
-    not_last_row = ((x + 1 < height) and (holes[x+1][y] == 1))
-    not_first_column = ((y - 1 >= 0) and (holes[x][y-1] == 1))
-    not_last_column = ((y + 1 < width) and (holes[x][y+1] == 1))
-    if not_first_column:
-        u.append(flow[x][y-1][0])
-        v.append(flow[x][y-1][1])
-    if not_top_row:
-        u.append(flow[x-1][y][0])
-        v.append(flow[x-1][y][1])
-    if not_last_column:
-        u.append(flow[x][y+1][0])
-        v.append(flow[x][y+1][1])
-    if not_last_row:
-        u.append(flow[x+1][y][0])
-        v.append(flow[x+1][y][1])
-    if not_last_column and not_last_row:
-        u.append(flow[x+1][y+1][0])
-        v.append(flow[x+1][y+1][1])
-    if not_first_column and not_top_row:
-        u.append(flow[x-1][y-1][0])
-        v.append(flow[x-1][y-1][1])
-    if not_first_column and not_last_row:
-        u.append(flow[x+1][y-1][0])
-        v.append(flow[x+1][y-1][1])
-    if not_last_column and not_top_row:
-        u.append(flow[x-1][y+1][0])
-        v.append(flow[x-1][y+1][1])
-    return u, v
-
-def average_flows(u, v):
-    sum_u = np.sum(u)
-    sum_v = np.sum(v)
-    if len(u) > 0 and len(v) > 0:
-        return (sum_u/len(u), sum_v/len(v))
-    else:
-        return -1, -1
-
 def holefill(flow, holes):
     '''
     fill holes in order: row then column, until fill in all the holes in the flow
@@ -95,26 +55,30 @@ def holefill(flow, holes):
     '''
     h,w,_ = flow.shape
     has_hole=1
-    #while has_hole==1:
-    # ===== loop all pixel in x, then in y
-    for y in range(0, w):
-        for x in range(0, h):
-            u = []
-            v = []
-            # If current index is a hole
-            if holes[x][y] == 0:
-                has_hole = 1
-                for j in range(y - 1, y + 1):
-                    for i in range(x - 1, x + 1):
-                        if i >= 0 and i < h and j >= 0 and j < w:
-                            if holes[i][j] != 0:
-                                u.append(flow[i][j][0])
-                                v.append(flow[i][j][1])
-                                #u, v = check_bounds_and_append(flow, u, v, x, y, h, w, holes)
-                    ux, uy = average_flows(u, v)
-                    if ux >= 0 and uy >= 0:
-                        flow[y][x][0] = ux
-                        flow[y][x][1] = uy
+    while has_hole==1:
+        has_hole = 0
+        # ===== loop all pixel in x, then in y
+        for y in range(0, w, 1): #columns
+            for x in range(0, h, 1): #rows
+                u = []
+                v = []
+                # If current index is a hole
+                if holes[x][y] == 0:
+                    count = 0
+                    for j in range(x - 1, x + 2, 1): #rows
+                        for i in range(y - 1, y + 2, 1): #columns
+                            if i >= 0 and i < w and j >= 0 and j < h:
+                                if holes[j][i] != 0:
+                                    u.append(flow[j][i][0])
+                                    v.append(flow[j][i][1])
+                    if len(u) == 0 or len(v) == 0:
+                        has_hole = 1
+                    else:
+                        ux = np.sum(u)/len(u)
+                        uy = np.sum(v)/len(v)
+                        flow[x][y][0] = ux
+                        flow[x][y][1] = uy
+                        holes[x][y] = 1
     return flow
 
 def bilinearInterp(frame, fx, fy):
@@ -374,6 +338,9 @@ def internp(frame0, frame1, t=0.5, flow0=None):
     # ==================================================
     # ===== 9/ inverse-warp frame 0 and frame 1 to the target time t
     # ==================================================
+    # ADDED 2 LINES BELOW
+    occ1        = pickle.load(open('occ1.step6.data', 'rb')) # load your intermediate result
+    occ0        = pickle.load(open('occ0.step6.data', 'rb')) # load your intermediate result
     frame_t = warpimages(flow_t, frame0, frame1, occ0, occ1, t)
     pickle.dump(frame_t, open('frame_t.step9.data', 'wb')) # save your intermediate result
     # ====== score
