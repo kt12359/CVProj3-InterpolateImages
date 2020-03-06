@@ -205,17 +205,24 @@ def warpimages(iflow, frame0, frame1, occ0, occ1, t):
         for x in range(0, width):
             if occ0[y][x] != 0 and occ1[y][x] != 0:
                 x0 = x - t * iflow[y][x][0]
-                x1 = x + (1 - t) * iflow[y][x][0]
                 y0 = y + t * iflow[y][x][1]
-                y1 = y + (1 - t) * iflow[y][x][1]
-                iframe[y][x][0] = (1 - t) * frame0[y][x][0]*x0 + t*frame1[y][x][0]*x1
-                iframe[y][x][1] = (1 - t) * frame0[y][x][1]*y0 + t*frame1[y][x][1]*y1
+                if x0 < width and y0 < height and x0 >= 0 and y0 >= 0:
+                    r0, g0, b0 = bilinearInterp(frame0, x0, y0)
+                    x1 = x + (1 - t) * iflow[y][x][0]
+                    y1 = y + (1 - t) * iflow[y][x][1]
+                    if x1 < width and y1 < height and x1 >= 0 and y1 >= 0:
+                        r1, g1, b1 = bilinearInterp(frame1, x1, y1)
+                        iframe[y][x][0] = (1 - t) * r0 + t*frame1[y][x][0]*r1
+                        iframe[y][x][1] = (1 - t) * g0 + t*frame1[y][x][1]*g1
+                        iframe[y][x][2] = (1 - t) * b0 + t*frame1[y][x][1]*b1
             elif occ0[y][x] != 0:
                 iframe[y][x][0] = frame0[y][x][0]
                 iframe[y][x][1] = frame0[y][x][1]
+                iframe[y][x][2] = frame0[y][x][2]
             else:
                 iframe[y][x][0] = frame1[y][x][0]
                 iframe[y][x][1] = frame1[y][x][1]
+                iframe[y][x][2] = frame1[y][x][2]
     return iframe
 
 def blur(im):
