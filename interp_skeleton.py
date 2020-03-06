@@ -215,10 +215,14 @@ def warpimages(iflow, frame0, frame1, occ0, occ1, t):
                         iframe[y][x][0] = (1 - t) * r0 + t*frame1[y][x][0]*r1
                         iframe[y][x][1] = (1 - t) * g0 + t*frame1[y][x][1]*g1
                         iframe[y][x][2] = (1 - t) * b0 + t*frame1[y][x][1]*b1
-            elif occ0[y][x] != 0:
+            if occ0[y][x] != 0:
                 iframe[y][x][0] = frame0[y][x][0]
                 iframe[y][x][1] = frame0[y][x][1]
                 iframe[y][x][2] = frame0[y][x][2]
+            if occ1[y][x] != 0:
+                iframe[y][x][0] = frame1[y][x][0]
+                iframe[y][x][1] = frame1[y][x][1]
+                iframe[y][x][2] = frame1[y][x][2]
             else:
                 iframe[y][x][0] = frame1[y][x][0]
                 iframe[y][x][1] = frame1[y][x][1]
@@ -257,7 +261,7 @@ def internp(frame0, frame1, t=0.5, flow0=None):
     # ==================================================
     # ===== 2/ find holes in the flow
     # ==================================================
-    '''holes0 = find_holes(flow0)
+    holes0 = find_holes(flow0)
     pickle.dump(holes0,open('holes0.step2.data','wb'))  # save your intermediate result
     # ====== score
     holes0       = pickle.load(open('holes0.step2.data','rb')) # load your intermediate result
@@ -319,12 +323,11 @@ def internp(frame0, frame1, t=0.5, flow0=None):
     flow_t       = pickle.load(open('flow_t.step7.data', 'rb')) # load your intermediate result
     flow_t_step7 = pickle.load(open('flow_t.step7.sample', 'rb')) # load sample result
     diff = np.sum(np.abs(flow_t-flow_t_step7))
-    print('flow_t_step7',diff)'''
+    print('flow_t_step7',diff)
 
     # ==================================================
     # ===== step 8/ find holes in the estimated flow_t
     # ==================================================
-    flow_t = pickle.load(open('flow_t.step7.data', 'rb'))
     holes1 = find_holes(flow_t)
     pickle.dump(holes1, open('holes1.step8.data', 'wb')) # save your intermediate result
     # ====== score
@@ -345,9 +348,6 @@ def internp(frame0, frame1, t=0.5, flow0=None):
     # ==================================================
     # ===== 9/ inverse-warp frame 0 and frame 1 to the target time t
     # ==================================================
-    # ADDED 2 LINES BELOW
-    occ1        = pickle.load(open('occ1.step6.data', 'rb')) # load your intermediate result
-    occ0        = pickle.load(open('occ0.step6.data', 'rb')) # load your intermediate result
     frame_t = warpimages(flow_t, frame0, frame1, occ0, occ1, t)
     pickle.dump(frame_t, open('frame_t.step9.data', 'wb')) # save your intermediate result
     # ====== score
