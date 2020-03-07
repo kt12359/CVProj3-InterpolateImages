@@ -97,6 +97,21 @@ def bilinearInterp(frame, fx, fy):
        pixel[color] = weight1 * frame[y][x][color] + weight2 * frame[y][x+1][color] + weight3 * frame[y+1][x+1][color] + weight4 * frame[y+1][x][color]
    return pixel
 
+def bilinearInterpOcclusion(frame, fx, fy):
+   pixel = np.array([0,0,0], np.float32)
+   a = fx-int(fx)
+   b = fy-int(fy)
+   x = np.clip(int(fx), 1, frame.shape[1]-2)
+   y = np.clip(int(fy), 1, frame.shape[0]-2)
+   #Calculate weights for bilinear interpolation.
+   weight1 = (1-a)*(1-b)
+   weight2 = a*(1-b)
+   weight3 = b*a
+   weight4 = (1-a)*b
+   # Apply bilinear interpolation to each channel of image.
+   pixel = weight1 * frame[y][x] + weight2 * frame[y][x+1] + weight3 * frame[y+1][x+1] + weight4 * frame[y+1][x]
+   return pixel
+
 def occlusions(flow0, frame0, frame1):
     '''
     Follow the step 3 in 3.3.2 of
@@ -203,30 +218,31 @@ def warpimages(iflow, frame0, frame1, occ0, occ1, t):
     height, width = frame0.shape[:2]
     for y in range(0, height):
         for x in range(0, width):
-            if occ0[y][x] != 0 and occ1[y][x] != 0:
-                x0 = x - t * iflow[y][x][0]
-                y0 = y + t * iflow[y][x][1]
-                if x0 < width and y0 < height and x0 >= 0 and y0 >= 0:
-                    r0, g0, b0 = bilinearInterp(frame0, x0, y0)
-                    x1 = x + (1 - t) * iflow[y][x][0]
-                    y1 = y + (1 - t) * iflow[y][x][1]
-                    if x1 < width and y1 < height and x1 >= 0 and y1 >= 0:
-                        r1, g1, b1 = bilinearInterp(frame1, x1, y1)
-                        iframe[y][x][0] = (1 - t) * r0 + t*frame1[y][x][0]*r1
-                        iframe[y][x][1] = (1 - t) * g0 + t*frame1[y][x][1]*g1
-                        iframe[y][x][2] = (1 - t) * b0 + t*frame1[y][x][1]*b1
-            if occ0[y][x] != 0:
-                iframe[y][x][0] = frame0[y][x][0]
-                iframe[y][x][1] = frame0[y][x][1]
-                iframe[y][x][2] = frame0[y][x][2]
-            if occ1[y][x] != 0:
-                iframe[y][x][0] = frame1[y][x][0]
-                iframe[y][x][1] = frame1[y][x][1]
-                iframe[y][x][2] = frame1[y][x][2]
+            x0 = np.float32(x) - t * iflow[y][x][0].astype(np.float32)
+            y0 = np.float32(y) - t * iflow[y][x][1].astype(np.float32)
+            x1 = np.float32(x) + (1-t) * iflow[y][x][0].astype(np.float32)
+            y1 = np.float32(y) + (1-t) * iflow[y][x][1].astype(np.float32)
+            if x0 < width and y0 < height and x0 >= 0 and y0 >= 0 and x1 < width and y1 < height and x1 >= 0 and y1 >= 0:
+                pixel0 = bilinearInterp(frame0.astype(np.float32), x0, y0)
+                pixel1 = bilinearInterp(frame1.astype(np.float32), x1, y1)
+
+                o_pixel0 = bilinearInterpOcclusion(occ0.astype(np.float32), x0, y0)#occ0[y0][x0]  # if pixel in occ0 is not in frame1
+                o_pixel1 = bilinearInterpOcclusion(occ1.astype(np.float32), x1, y1)#occ1[y1][x1]
+                oc0 = np.int32(o_pixel0+0.5)
+                oc1 = np.int32(o_pixel1+0.5)
+
+                if  oc0==0 and oc1==0: 
+                    w0= 1-t          #when t is 1  w0 is 0
+                    w1= t            # and w 0 is 1              
+                elif oc0 > oc1:
+                    w0 = 0
+                    w1 = 1
+                else:
+                    w1= 0
+                    w0= 1 # we blending
+                iframe[y,x,:] = np.int32(w0*pixel0 + w1*pixel1+0.5)
             else:
-                iframe[y][x][0] = frame1[y][x][0]
-                iframe[y][x][1] = frame1[y][x][1]
-                iframe[y][x][2] = frame1[y][x][2]
+                iframe[y,x,:] = frame1[y,x,:]
     return iframe
 
 def blur(im):
@@ -348,6 +364,7 @@ def internp(frame0, frame1, t=0.5, flow0=None):
     # ==================================================
     # ===== 9/ inverse-warp frame 0 and frame 1 to the target time t
     # ==================================================
+    
     frame_t = warpimages(flow_t, frame0, frame1, occ0, occ1, t)
     pickle.dump(frame_t, open('frame_t.step9.data', 'wb')) # save your intermediate result
     # ====== score
@@ -355,6 +372,10 @@ def internp(frame0, frame1, t=0.5, flow0=None):
     frame_t_step9 = pickle.load(open('frame_t.step9.sample', 'rb')) # load sample result
     diff = np.sqrt(np.mean(np.square(frame_t.astype(np.float32)-frame_t_step9.astype(np.float32))))
     print('frame_t',diff)
+
+    
+    frame_t       = pickle.load(open('frame_t.step9.data', 'rb')) # load your intermediate result
+    frame_t_step9 = pickle.load(open('frame_t.step9.sample', 'rb')) # load sample result
 
     return frame_t
 
